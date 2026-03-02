@@ -1,0 +1,145 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid py-4 px-4" style="background-color: #121416; min-height: 100vh; color: white;">
+    
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold mb-0">CrediFuerza <span class="text-primary">v2.5</span></h2>
+            <small class="text-muted text-uppercase">Resumen de Operaciones</small>
+        </div>
+        {% if role == 'admin' %}
+        <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#modalCap">
+            <i class="fas fa-cog me-2"></i>Ajustar Capital Inicial
+        </button>
+        {% endif %}
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card bg-success bg-gradient text-white border-0 shadow h-100">
+                <div class="card-body">
+                    <h6 class="small opacity-75">CAJA DISPONIBLE</h6>
+                    <h3 class="fw-bold">₲ {{ "{:,.0f}".format(disponible|default(0)) }}</h3>
+                    <i class="fas fa-wallet fa-2x opacity-25 float-end"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-primary bg-gradient text-white border-0 shadow h-100">
+                <div class="card-body">
+                    <h6 class="small opacity-75">CARTERA EN CALLE</h6>
+                    <h2 class="fw-bold">₲ {{ "{:,.0f}".format(en_calle|default(0)) }}</h2>
+                    <i class="fas fa-hand-holding-usd fa-2x opacity-25 float-end"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning bg-gradient text-dark border-0 shadow h-100">
+                <div class="card-body">
+                    <h6 class="small opacity-75">UTILIDAD PROYECTADA</h6>
+                    <h2 class="fw-bold">₲ {{ "{:,.0f}".format(utilidad|default(0)) }}</h2>
+                    <i class="fas fa-chart-line fa-2x opacity-25 float-end"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-danger bg-gradient text-white border-0 shadow h-100">
+                <div class="card-body">
+                    <h6 class="small opacity-75">PATRIMONIO TOTAL</h6>
+                    <h2 class="fw-bold">₲ {{ "{:,.0f}".format(patrimonio|default(0)) }}</h2>
+                    <i class="fas fa-vault fa-2x opacity-25 float-end"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-7">
+            <div class="card bg-dark text-white border-secondary shadow h-100">
+                <div class="card-header bg-transparent border-secondary py-3">
+                    <h5 class="mb-0"><i class="fas fa-chart-area me-2 text-info"></i>Rendimiento Semanal</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="graficoCobros" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-5">
+            <div class="card bg-dark text-white border-secondary shadow mb-4">
+                <div class="card-body d-grid gap-2">
+                    <h5 class="mb-3 text-muted small fw-bold text-uppercase">Accesos Directos</h5>
+                    <a href="/cobrar" class="btn btn-success py-3 fw-bold"><i class="fas fa-money-bill-wave me-2"></i>REGISTRAR COBRO</a>
+                    <a href="/prestamos" class="btn btn-primary py-3 fw-bold"><i class="fas fa-plus-circle me-2"></i>NUEVO PRÉSTAMO</a>
+                </div>
+            </div>
+            
+            <div class="card bg-dark text-white border-secondary shadow">
+                <div class="card-header bg-transparent border-secondary">
+                    <h6 class="mb-0">Cobros Recientes</h6>
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush bg-transparent">
+                        {% for r in recientes %}
+                        <li class="list-group-item bg-transparent text-white border-secondary d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="d-block fw-bold text-info">{{ r.nombre }}</small>
+                                <small class="text-muted">{{ r.date }}</small>
+                            </div>
+                            <span class="text-success fw-bold">+₲{{ "{:,.0f}".format(r.amount) }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modalCap" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark border-primary">
+            <div class="modal-header border-secondary text-white">
+                <h5 class="modal-title">Ajustar Capital de Trabajo</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="/actualizar_capital" method="POST">
+                <div class="modal-body text-white">
+                    <label class="mb-2">Nuevo Capital Inicial (₲)</label>
+                    <input type="number" name="nuevo_cap" class="form-control bg-dark text-white border-secondary" placeholder="Ej: " required>
+                    <p class="small text-muted mt-2">Nota: Esto afectará el cálculo del disponible y patrimonio.</p>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="submit" class="btn btn-primary w-100">Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const ctx = document.getElementById('graficoCobros').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'],
+            datasets: [{
+                label: 'Cobros realizados',
+                data: [12, 19, 3, 5, 2, 3, 7], // Aquí puedes pasar datos reales desde Flask
+                borderColor: '#0dcaf0',
+                backgroundColor: 'rgba(13, 202, 240, 0.1)',
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { grid: { color: '#333' }, ticks: { color: '#888' } },
+                x: { grid: { color: '#333' }, ticks: { color: '#888' } }
+            }
+        }
+    });
+</script>
+{% endblock %}

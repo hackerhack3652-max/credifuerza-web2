@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-4">
+    <div class="row">
+        <div class="col-md-5">
+            <div class="card bg-dark text-white border-secondary mb-4">
+                <div class="card-header bg-secondary fw-bold">ESTADO DE CUENTA</div>
+                <div class="card-body">
+                    <h5 class="text-info">{{ loan.nombre }}</h5>
+                    <hr class="border-secondary">
+                    
+                    {% if saldo > 0 %}
+                        {% if atrasado %}
+                            <div class="alert alert-danger border-0 mb-3 text-center">
+                                <h4 class="fw-bold mb-0">¡ATRASADO!</h4>
+                                <small>Lleva {{ dias_atraso }} días de mora</small>
+                            </div>
+                        {% else %}
+                            <div class="alert alert-success border-0 mb-3 text-center">
+                                <h4 class="fw-bold mb-0">AL DÍA</h4>
+                            </div>
+                        {% endif %}
+
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Próximo Vencimiento:</span>
+                            <span class="fw-bold">{{ proximo_pago.strftime('%d/%m/%Y') if proximo_pago != 'FINALIZADO' else 'N/A' }}</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Monto a Cobrar:</span>
+                            <span class="fw-bold text-warning">₲ {{ monto_cuota | moneda }}</span>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info border-0 text-center">
+                            <h4 class="fw-bold mb-0">PRÉSTAMO PAGADO</h4>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="card bg-dark text-white p-3 mb-4 border-secondary">
+                <small class="mb-2 d-block">Progreso del Préstamo</small>
+                <div class="progress" style="height: 25px; background-color: #1a1a1a;">
+                    {% set porcentaje = (total_pagado / loan.total_due) * 100 %}
+                    <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: {{ porcentaje }}%">
+                        {{ porcentaje | int }}%
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between mt-2 small">
+                    <span>Pagado: ₲ {{ total_pagado | moneda }}</span>
+                    <span>Total: ₲ {{ loan.total_due | moneda }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <div class="card bg-dark text-white border-secondary">
+                <div class="card-header border-secondary d-flex justify-content-between">
+                    <span>Historial de Pagos</span>
+                    <a href="{{ url_for('cobrar') }}" class="btn btn-sm btn-info">+ Nuevo Cobro</a>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-dark table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Monto</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in pagos %}
+                            <tr>
+                                <td>{{ p.date }}</td>
+                                <td class="text-success fw-bold">₲ {{ p.amount | moneda }}</td>
+                                <td>
+                                    <form action="{{ url_for('eliminar_pago', id=p.id) }}" method="POST">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">X</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

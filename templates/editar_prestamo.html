@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2 class="text-warning fw-bold mb-0">
+                    <i class="fas fa-edit me-2"></i>Editar Préstamo #{{ loan.id }}
+                </h2>
+                <a href="{{ url_for('perfil_prestamo', id=loan.id) }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-times me-1"></i> Cancelar
+                </a>
+            </div>
+
+            <div class="card bg-dark text-white border-warning shadow-lg">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="card-title mb-0 fw-bold text-center">Modificar Condiciones del Crédito</h5>
+                </div>
+                
+                <div class="card-body p-4">
+                    <div class="alert alert-secondary bg-opacity-10 border-secondary mb-4">
+                        <small class="text-muted d-block text-uppercase fw-bold">Cliente Asociado:</small>
+                        <span class="h5 fw-bold text-info">{{ loan.nombre }}</span>
+                    </div>
+
+                    <form action="{{ url_for('editar_prestamo', id=loan.id) }}" method="POST">
+                        
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label text-warning small fw-bold">Capital Prestado (Puro)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-black text-warning border-secondary">₲</span>
+                                    <input type="number" name="cap" class="form-control bg-black text-white border-secondary" 
+                                           value="{{ loan.capital }}" required min="0">
+                                </div>
+                                <div class="form-text text-muted small">Monto inicial entregado.</div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label text-warning small fw-bold">Total a Cobrar (Con Interés)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-black text-success border-secondary">₲</span>
+                                    <input type="number" name="tot" class="form-control bg-black text-white border-secondary" 
+                                           value="{{ loan.total_due }}" required min="0">
+                                </div>
+                                <div class="form-text text-muted small">Monto total final.</div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label text-warning small fw-bold">Cantidad de Cuotas</label>
+                                <input type="number" name="cuo" class="form-control bg-black text-white border-secondary" 
+                                       value="{{ loan.cuotas }}" required min="1">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label text-warning small fw-bold">Frecuencia de Pago</label>
+                                <select name="frecuencia" class="form-select bg-black text-white border-secondary">
+                                    <option value="diario" {% if loan.frecuencia == 'diario' %}selected{% endif %}>Diario</option>
+                                    <option value="semanal" {% if loan.frecuencia == 'semanal' %}selected{% endif %}>Semanal</option>
+                                    <option value="quincenal" {% if loan.frecuencia == 'quincenal' %}selected{% endif %}>Quincenal</option>
+                                    <option value="mensual" {% if loan.frecuencia == 'mensual' %}selected{% endif %}>Mensual</option>
+                                </select>
+                            </div>
+
+                            <div class="col-12 mt-3">
+                                <label class="form-label text-warning small fw-bold">Estado del Crédito</label>
+                                <div class="d-flex gap-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="estado" id="est1" value="ACTIVO" {% if loan.estado == 'ACTIVO' %}checked{% endif %}>
+                                        <label class="form-check-label" for="est1">Activo</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="estado" id="est2" value="FINALIZADO" {% if loan.estado == 'FINALIZADO' %}checked{% endif %}>
+                                        <label class="form-check-label" for="est2">Finalizado</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-grid gap-2 mt-5">
+                            <button type="submit" class="btn btn-warning fw-bold py-2">
+                                <i class="fas fa-save me-2"></i>GUARDAR CAMBIOS
+                            </button>
+                            <p class="text-center small text-muted mt-2">
+                                <i class="fas fa-exclamation-triangle me-1"></i> 
+                                Al guardar, se recalcularán los saldos en el perfil del cliente.
+                            </p>
+                        </div>
+
+                    </form>
+                </div>
+            </div>
+
+            <div class="mt-4 p-3 bg-danger bg-opacity-10 border border-danger border-opacity-25 rounded text-center">
+                <small class="text-danger">
+                    <strong>Nota:</strong> Si cambias la cantidad de cuotas, el historial de pagos ya realizados no se verá afectado, pero el saldo pendiente cambiará automáticamente.
+                </small>
+            </div>
+
+        </div>
+    </div>
+</div>
+{% endblock %}

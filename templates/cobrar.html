@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-4">
+    <div class="card bg-dark text-white border-success p-4">
+        <h3 class="text-success"><i class="fas fa-money-bill-wave me-2"></i>Registrar Cobro</h3>
+        <form method="POST" class="mt-3">
+            <label>Seleccionar Préstamo</label>
+            <select name="loan_id" class="form-select bg-dark text-white border-secondary mb-3" required>
+                {% for p in prestamos %}
+                <option value="{{ p.id }}">{{ p.nombre }} (Debe: ₲ {{ "{:,.0f}".format(p.pendiente) }})</option>
+                {% endfor %}
+            </select>
+            <label>Monto a Cobrar</label>
+            <input type="number" name="monto" class="form-control bg-dark text-white border-secondary mb-3" required>
+            <button type="submit" class="btn btn-success w-100">GUARDAR COBRO</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

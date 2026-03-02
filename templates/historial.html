@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-4">
+    <div class="card bg-dark text-white p-4 shadow-lg border-secondary">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h3 class="fw-bold text-info"><i class="fas fa-history me-2"></i>Historial de Cobros</h3>
+            <span class="badge bg-secondary">Total Movimientos: {{ pagos|length }}</span>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-dark table-hover align-middle">
+                <thead class="table-secondary text-dark">
+                    <tr>
+                        <th>Fecha y Hora</th>
+                        <th>Cliente</th>
+                        <th>Monto Cobrado</th>
+                        {% if session['role'] == 'admin' %}
+                        <th class="text-center">Acciones</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in pagos %}
+                    <tr>
+                        <td class="small">{{ p.date }}</td>
+                        <td class="fw-bold text-uppercase">{{ p.nombre }}</td>
+                        <td class="text-success fw-bold">₲ {{ "{:,.0f}".format(p.amount) }}</td>
+                        
+                        {% if session['role'] == 'admin' %}
+                        <td class="text-center">
+                            <a href="/eliminar_pago/{{ p.id }}" 
+                               class="btn btn-outline-danger btn-sm" 
+                               onclick="return confirm('¿Estás seguro de eliminar este pago? El saldo del cliente volverá a aumentar.')">
+                                <i class="fas fa-trash-alt"></i>
+                            </a>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                    
+                    {% if not pagos %}
+                    <tr>
+                        <td colspan="4" class="text-center text-muted py-4">No hay pagos registrados aún.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

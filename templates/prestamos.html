@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row g-4">
+        <div class="col-lg-4">
+            <div class="card bg-dark text-white border-info shadow">
+                <div class="card-header bg-info text-dark">
+                    <h5 class="mb-0 fw-bold"><i class="fas fa-calculator me-2"></i>Nuevo Préstamo</h5>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('prestamos') }}" method="POST" id="loanForm">
+                        <div class="mb-3">
+                            <label class="form-label small text-info">Cliente</label>
+                            <select name="cliente_id" class="form-select bg-black text-white border-secondary" required>
+                                <option value="" selected disabled>Seleccione...</option>
+                                {% for c in clientes %}
+                                <option value="{{ c.id }}">{{ c.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small text-info">Capital</label>
+                                <input type="number" name="cap" id="cap" class="form-control bg-black text-white border-secondary" placeholder="0" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small text-info">Total a Cobrar</label>
+                                <input type="number" name="tot" id="tot" class="form-control bg-black text-white border-secondary" placeholder="0" required>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small text-info">Cuotas</label>
+                                <input type="number" name="cuo" id="cuo" class="form-control bg-black text-white border-secondary" value="1" min="1" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small text-info">Frecuencia</label>
+                                <select name="frecuencia" id="frecuencia" class="form-select bg-black text-white border-secondary">
+                                    <option value="diario">Diario</option>
+                                    <option value="semanal">Semanal</option>
+                                    <option value="quincenal">Quincenal</option>
+                                    <option value="mensual">Mensual</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mt-3 p-3 bg-black border border-info rounded">
+                            <h6 class="text-info border-bottom border-secondary pb-2">Resumen del Crédito</h6>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="small">Monto por Cuota:</span>
+                                <span class="fw-bold text-success" id="val_cuota">₲ 0</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="small">Primer Pago:</span>
+                                <span class="fw-bold text-warning" id="fecha_pago">-</span>
+                            </div>
+                        </div>
+
+                        <div class="d-grid mt-4">
+                            <button type="submit" class="btn btn-info fw-bold text-dark py-2">
+                                <i class="fas fa-check-circle me-2"></i>CONFIRMAR PRÉSTAMO
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="card bg-dark text-white border-0 shadow">
+                <div class="card-header bg-secondary bg-opacity-25 py-3">
+                    <h5 class="mb-0 fw-bold text-info">Cartera Activa</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-dark table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th class="ps-3">ID</th>
+                                    <th>Cliente</th>
+                                    <th>Total</th>
+                                    <th>Saldo</th>
+                                    <th class="text-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for l in loans %}
+                                <tr>
+                                    <td class="ps-3">#{{ l.id }}</td>
+                                    <td>{{ l.nombre }}</td>
+                                    <td>₲ {{ l.total_due | moneda }}</td>
+                                    <td class="text-danger fw-bold">₲ {{ l.saldo | moneda }}</td>
+                                    <td class="text-center">
+                                        <div class="btn-group">
+                                            <a href="{{ url_for('perfil_prestamo', id=l.id) }}" class="btn btn-sm btn-info"><i class="fas fa-eye"></i></a>
+                                            <form action="{{ url_for('eliminar_prestamo', id=l.id) }}" method="POST" onsubmit="return confirm('¿Borrar?')">
+                                                <button type="submit" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const inputTot = document.getElementById('tot');
+    const inputCap = document.getElementById('cap');
+    const inputCuo = document.getElementById('cuo');
+    const selectFrec = document.getElementById('frecuencia');
+    
+    const displayCuota = document.getElementById('val_cuota');
+    const displayFecha = document.getElementById('fecha_pago');
+
+    function calcular() {
+        const total = parseFloat(inputTot.value) || 0;
+        const cuotas = parseInt(inputCuo.value) || 1;
+        const frecuencia = selectFrec.value;
+
+        // 1. Calcular Monto de Cuota
+        const montoCuota = Math.round(total / cuotas);
+        displayCuota.innerText = "₲ " + montoCuota.toLocaleString('de-DE');
+
+        // 2. Calcular Fecha del primer pago (Mañana según frecuencia)
+        let hoy = new Date();
+        if (frecuencia === 'diario') hoy.setDate(hoy.getDate() + 1);
+        if (frecuencia === 'semanal') hoy.setDate(hoy.getDate() + 7);
+        if (frecuencia === 'quincenal') hoy.setDate(hoy.getDate() + 15);
+        if (frecuencia === 'mensual') hoy.setMonth(hoy.getMonth() + 1);
+
+        const opciones = { day: '2-digit', month: '2-digit', year: 'numeric' };
+        displayFecha.innerText = hoy.toLocaleDateString('es-PY', opciones);
+    }
+
+    // Sugerir interés del 20% al escribir capital
+    inputCap.addEventListener('input', () => {
+        inputTot.value = Math.round(parseFloat(inputCap.value) * 1.20) || 0;
+        calcular();
+    });
+
+    // Escuchar cambios en los demás campos
+    inputTot.addEventListener('input', calcular);
+    inputCuo.addEventListener('input', calcular);
+    selectFrec.addEventListener('change', calcular);
+</script>
+{% endblock %}

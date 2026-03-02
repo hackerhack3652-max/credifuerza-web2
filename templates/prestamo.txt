@@ -1,0 +1,171 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid py-4 px-4" style="background-color: #1a1d20; min-height: 100vh;">
+    <div class="row g-4">
+        
+        <div class="col-md-4">
+            <div class="card bg-dark text-white border-primary shadow-lg" style="border-radius: 15px; border-width: 2px;">
+                <div class="card-body p-4">
+                    <h4 class="text-primary mb-4">
+                        <i class="fas fa-calculator me-2"></i>Nueva Operación
+                    </h4>
+                    
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label class="small text-muted fw-bold">CLIENTE</label>
+                            <select name="cliente_id" class="form-select bg-dark text-white border-secondary" required>
+                                <option value="" disabled selected>Seleccionar cliente...</option>
+                                {% for c in clientes %}
+                                <option value="{{ c.id }}">{{ c.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="small text-muted fw-bold">CAPITAL (₲)</label>
+                                <input type="number" name="cap" id="cap" class="form-control bg-dark text-white border-secondary" placeholder="Ej: 1000000" required>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="small text-muted fw-bold">TOTAL A COBRAR (₲)</label>
+                                <input type="number" name="tot" id="tot" class="form-control bg-dark text-white border-secondary" placeholder="Ej: 1200000" required>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="small text-muted fw-bold">CUOTAS</label>
+                                <input type="number" name="cuo" id="cuo" class="form-control bg-dark text-white border-secondary" value="1" min="1" required>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="small text-muted fw-bold">FRECUENCIA</label>
+                                <select name="frecuencia" id="frecuencia" class="form-select bg-dark text-white border-secondary">
+                                    <option value="7">Semanal</option>
+                                    <option value="15">Quincenal</option>
+                                    <option value="30">Mensual</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="box-calculo" class="p-3 mb-4 rounded border border-primary shadow-sm" style="background: rgba(13, 110, 253, 0.1); display: none;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="small text-muted">Monto por Cuota:</span>
+                                <h3 class="text-primary fw-bold mb-0" id="txt-monto-cuota">₲ 0</h3>
+                            </div>
+                            <hr class="my-2 border-secondary">
+                            <div id="lista-fechas" class="small text-muted"></div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100 fw-bold py-2">
+                            <i class="fas fa-check-circle me-2"></i>GENERAR PRÉSTAMO
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card bg-dark text-white border-secondary shadow-lg" style="border-radius: 15px;">
+                <div class="card-body p-4">
+                    <h5 class="mb-4"><i class="fas fa-list-ul me-2 text-warning"></i>Estado de Cartera</h5>
+                    <div class="table-responsive">
+                        <table class="table table-dark table-hover align-middle border-secondary">
+                            <thead class="text-muted small">
+                                <tr>
+                                    <th>CLIENTE</th>
+                                    <th>TOTAL</th>
+                                    <th>SALDO</th>
+                                    <th>ESTADO</th>
+                                    <th class="text-center">ALERTAS</th>
+                                    <th>ACCIONES</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for l in loans %}
+                                <tr>
+                                    <td>
+                                        <span class="fw-bold">{{ l.nombre }}</span><br>
+                                        <small class="text-muted">{{ l.frecuencia }}</small>
+                                    </td>
+                                    <td>₲ {{ "{:,.0f}".format(l.total_due) }}</td>
+                                    <td class="text-info fw-bold">₲ {{ "{:,.0f}".format(l.saldo) }}</td>
+                                    <td>
+                                        {% if l.saldo <= 0 %}
+                                            <span class="badge bg-success">PAGADO</span>
+                                        {% else %}
+                                            <span class="badge bg-primary">ACTIVO</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center">
+                                        {% if l.saldo > 0 %}
+                                            {% if l.alerta == 'ATRASADO' %}
+                                                <span class="badge rounded-pill bg-danger animate-flicker">
+                                                    <i class="fas fa-exclamation-triangle"></i> ATRASADO
+                                                </span>
+                                            {% else %}
+                                                <span class="badge rounded-pill border border-success text-success">AL DÍA</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="btn-group">
+                                            <a href="/editar_prestamo/{{ l.id }}" class="btn btn-sm btn-outline-info border-0"><i class="fas fa-edit"></i></a>
+                                            {% if session['role'] == 'admin' %}
+                                            <a href="/eliminar_prestamo/{{ l.id }}" class="btn btn-sm btn-outline-danger border-0" onclick="return confirm('¿Eliminar definitivamente?')"><i class="fas fa-trash"></i></a>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const inputTotal = document.getElementById('tot');
+    const inputCuotas = document.getElementById('cuo');
+    const inputFrecuencia = document.getElementById('frecuencia');
+    const boxCalculo = document.getElementById('box-calculo');
+
+    function calcular() {
+        const total = parseFloat(inputTotal.value) || 0;
+        const cuotas = parseInt(inputCuotas.value) || 0;
+        const dias = parseInt(inputFrecuencia.value);
+
+        if (total > 0 && cuotas > 0) {
+            boxCalculo.style.display = 'block';
+            let montoPorCuota = Math.ceil(total / cuotas);
+            document.getElementById('txt-monto-cuota').innerText = '₲ ' + montoPorCuota.toLocaleString('es-PY');
+
+            // Proyección de fechas próximas
+            let htmlFechas = "";
+            let fechaBase = new Date();
+            for(let i=1; i<=3 && i<=cuotas; i++) {
+                fechaBase.setDate(fechaBase.getDate() + dias);
+                htmlFechas += `<div>Cuota ${i}: ${fechaBase.toLocaleDateString()}</div>`;
+            }
+            document.getElementById('lista-fechas').innerHTML = htmlFechas;
+        } else {
+            boxCalculo.style.display = 'none';
+        }
+    }
+
+    inputTotal.addEventListener('input', calcular);
+    inputCuotas.addEventListener('input', calcular);
+    inputFrecuencia.addEventListener('change', calcular);
+</script>
+
+<style>
+    .animate-flicker { animation: flicker 1.2s infinite; }
+    @keyframes flicker {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+</style>
+{% endblock %}
