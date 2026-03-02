@@ -1,263 +1,334 @@
 # =================================================================
-# CREDIFUERZA CLOUD v14.0 - SISTEMA PROFESIONAL DE MICROFINANZAS
+# CREDIFUERZA ENTERPRISE CLOUD v14.0 - SISTEMA PROFESIONAL
 # =================================================================
-# Autor: Gemini para CrediFuerza Enterprise
-# Objetivo: Gestión de Préstamos, Cobros y Capital en la Nube
+# Licencia: Comercial / Venta SaaS
+# Infraestructura: Flask + PostgreSQL (Supabase) + Render
 # =================================================================
 
 import os
 import psycopg2
+import logging
 from psycopg2 import extras
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, session, url_for, flash
+from flask import Flask, render_template, request, redirect, session, url_for, flash, jsonify
+
+# Configuración de Logging para auditoría técnica
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-# Configuración de Seguridad
-app.secret_key = os.environ.get('SECRET_KEY', 'llave_maestra_2026_pro_v14')
+app.secret_key = os.environ.get('SECRET_KEY', '7f8a9b2c3d4e5f6g7h8i9j0k1l2m3n4o5p')
 
-# URL de conexión a Supabase (Cámbiala por la tuya con tu password real)
-DATABASE_URL = "postgresql://postgres:TU_PASSWORD_REAL@db.hwpctosycjmypltjhgye.supabase.co:5432/postgres"
-
-# -----------------------------------------------------------------
-# 1. UTILIDADES Y CONEXIÓN
-# -----------------------------------------------------------------
+# --- CONFIGURACIÓN DE CONEXIÓN ---
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 def get_db():
-    """Establece conexión con el servidor PostgreSQL en la nube"""
+    """Gestiona la conexión al pool de PostgreSQL en Supabase"""
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
         return conn
     except Exception as e:
-        print(f"Error crítico de conexión: {e}")
+        logger.error(f"Error crítico de conexión a DB: {e}")
         return None
 
+# --- HERRAMIENTAS DE FORMATO Y LÓGICA FINANCIERA ---
 @app.template_filter('moneda')
 def moneda_filter(value):
-    """Formato profesional para moneda local (ej: 1.500.000)"""
+    """Formateo de miles para divisas (ej: 1.000.000)"""
     try:
-        if value is None or value == "": return "0"
+        if value is None: return "0"
         return "{:,.0f}".format(float(value)).replace(",", ".")
-    except: return "0"
+    except (ValueError, TypeError):
+        return "0"
 
-def registrar_log(accion, detalles=""):
-    """Sistema de Auditoría para el Dueño (Admin)"""
+def registrar_auditoria(usuario, accion, tabla, registro_id, detalles=""):
+    """Sistema de log para prevenir fraudes internos"""
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
-                user = session.get('username', 'Sistema')
                 fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                cur.execute(
-                    "INSERT INTO auditoria (fecha, usuario, accion, detalles) VALUES (%s,%s,%s,%s)",
-                    (fecha, user, accion, detalles)
-                )
+                cur.execute("""
+                    INSERT INTO auditoria (fecha, usuario, accion, tabla, registro_id, detalles)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (fecha, usuario, accion, tabla, registro_id, detalles))
             conn.commit()
-    except: pass
+    except Exception as e:
+        logger.error(f"Error en log de auditoría: {e}")
 
-# -----------------------------------------------------------------
-# 2. LÓGICA DE CONTROL DE CAJA DISPONIBLE
-# -----------------------------------------------------------------
+# --- INICIALIZACIÓN DE LA ESTRUCTURA CLOUD ---
+def init_db():
+    """Crea el esquema completo si es una base de datos nueva"""
+    tables = [
+        """CREATE TABLE IF NOT EXISTS clientes (
+            id SERIAL PRIMARY KEY, 
+            nombre VARCHAR(100) NOT NULL, 
+            cedula VARCHAR(20) UNIQUE NOT NULL,
+            telefono VARCHAR(20), 
+            direccion TEXT, 
+            referencia TEXT,
+            fecha_registro DATE DEFAULT CURRENT_DATE)""",
+        
+        """CREATE TABLE IF NOT EXISTS loans (
+            id SERIAL PRIMARY KEY, 
+            cliente_id INTEGER REFERENCES clientes(id),
+            capital FLOAT8 NOT NULL, 
+            interes_total FLOAT8 NOT NULL,
+            total_deuda FLOAT8 NOT NULL, 
+            cuotas_total INTEGER NOT NULL,
+            cuotas_pagadas INTEGER DEFAULT 0,
+            frecuencia VARCHAR(20), 
+            monto_cuota FLOAT8,
+            fecha_inicio DATE, 
+            fecha_vencimiento DATE,
+            estado VARCHAR(20) DEFAULT 'ACTIVO',
+            notas TEXT)""",
+        
+        """CREATE TABLE IF NOT EXISTS payments (
+            id SERIAL PRIMARY KEY, 
+            loan_id INTEGER REFERENCES loans(id),
+            monto FLOAT8 NOT NULL, 
+            fecha_pago TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            metodo_pago VARCHAR(30) DEFAULT 'EFECTIVO',
+            recibido_por VARCHAR(50),
+            nota TEXT)""",
+            
+        """CREATE TABLE IF NOT EXISTS settings (
+            key VARCHAR(50) PRIMARY KEY, 
+            value TEXT)""",
+            
+        """CREATE TABLE IF NOT EXISTS reinvestments (
+            id SERIAL PRIMARY KEY, 
+            monto FLOAT8 NOT NULL, 
+            fecha DATE DEFAULT CURRENT_DATE, 
+            descripcion TEXT)""",
+            
+        """CREATE TABLE IF NOT EXISTS usuarios (
+            id SERIAL PRIMARY KEY, 
+            username VARCHAR(50) UNIQUE, 
+            pin VARCHAR(10), 
+            role VARCHAR(20) DEFAULT 'cobrador',
+            nombre_real VARCHAR(100))""",
+            
+        """CREATE TABLE IF NOT EXISTS auditoria (
+            id SERIAL PRIMARY KEY, 
+            fecha TIMESTAMP, 
+            usuario VARCHAR(50), 
+            accion VARCHAR(50), 
+            tabla VARCHAR(50),
+            registro_id INTEGER,
+            detalles TEXT)"""
+    ]
+    
+    conn = get_db()
+    if conn:
+        with conn:
+            with conn.cursor() as cur:
+                for table_sql in tables:
+                    cur.execute(table_sql)
+                # Datos iniciales obligatorios
+                cur.execute("INSERT INTO settings (key, value) VALUES ('cap_inicial', '5000000') ON CONFLICT DO NOTHING")
+                cur.execute("INSERT INTO usuarios (username, pin, role, nombre_real) VALUES ('admin', '1234', 'admin', 'Administrador Principal') ON CONFLICT DO NOTHING")
+        conn.close()
 
-def calcular_disponible():
-    """Calcula el efectivo real disponible para prestar"""
+# --- LÓGICA DE NEGOCIO (CAJA Y FLUJO) ---
+def obtener_resumen_caja():
+    """Calcula la salud financiera del negocio en tiempo real"""
     with get_db() as conn:
         with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-            cur.execute("SELECT value FROM settings WHERE key='cap_inicial'")
-            c_i = float(cur.fetchone()['value'])
+            cur.execute("SELECT CAST(value AS FLOAT8) FROM settings WHERE key='cap_inicial'")
+            base = cur.fetchone()['value']
             
-            cur.execute("SELECT SUM(amount) as s FROM reinvestments")
-            r = cur.fetchone()['s'] or 0.0
+            cur.execute("SELECT SUM(monto) as s FROM reinvestments")
+            reinv = cur.fetchone()['s'] or 0.0
             
             cur.execute("SELECT SUM(capital) as s FROM loans")
-            p_p = cur.fetchone()['s'] or 0.0
+            prestado = cur.fetchone()['s'] or 0.0
             
-            cur.execute("SELECT SUM(amount) as s FROM payments")
-            p_t = cur.fetchone()['s'] or 0.0
+            cur.execute("SELECT SUM(total_deuda) as s FROM loans WHERE estado='ACTIVO'")
+            en_calle_total = cur.fetchone()['s'] or 0.0
             
-            return (c_i + r - p_p + p_t)
+            cur.execute("SELECT SUM(monto) as s FROM payments")
+            cobrado = cur.fetchone()['s'] or 0.0
+            
+            disponible = (base + reinv - prestado + cobrado)
+            utilidad_esperada = (en_calle_total - (prestado * (en_calle_total/prestado if prestado > 0 else 1)))
+            
+            return {
+                "disponible": disponible,
+                "en_calle": en_calle_total - cobrado,
+                "cobrado_total": cobrado,
+                "capital_base": base + reinv
+            }
 
-# -----------------------------------------------------------------
-# 3. INICIALIZACIÓN DE TABLAS (POSTGRESQL)
-# -----------------------------------------------------------------
-
-def init_db():
-    """Crea la estructura de datos si no existe en la nube"""
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""CREATE TABLE IF NOT EXISTS clientes (
-                id SERIAL PRIMARY KEY, nombre TEXT, tel TEXT, 
-                cedula TEXT UNIQUE, dir TEXT, fecha_registro TEXT)""")
-            
-            cur.execute("""CREATE TABLE IF NOT EXISTS loans (
-                id SERIAL PRIMARY KEY, cliente_id INTEGER, 
-                capital FLOAT8, total_due FLOAT8, cuotas INTEGER, 
-                frecuencia TEXT, date TEXT, estado TEXT DEFAULT 'ACTIVO')""")
-            
-            cur.execute("""CREATE TABLE IF NOT EXISTS payments (
-                id SERIAL PRIMARY KEY, loan_id INTEGER, 
-                amount FLOAT8, date TEXT, nota TEXT)""")
-            
-            cur.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
-            cur.execute("CREATE TABLE IF NOT EXISTS reinvestments (id SERIAL PRIMARY KEY, amount FLOAT8, date TEXT, nota TEXT)")
-            cur.execute("CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, role TEXT, username TEXT UNIQUE, pin TEXT)")
-            cur.execute("CREATE TABLE IF NOT EXISTS auditoria (id SERIAL PRIMARY KEY, fecha TEXT, usuario TEXT, accion TEXT, detalles TEXT)")
-            
-            # Datos base
-            cur.execute("INSERT INTO settings (key, value) VALUES ('cap_inicial', '10000000') ON CONFLICT DO NOTHING")
-            cur.execute("INSERT INTO usuarios (role, username, pin) VALUES ('admin', 'admin', '1234') ON CONFLICT DO NOTHING")
-        conn.commit()
-
-# -----------------------------------------------------------------
-# 4. RUTAS DE ACCESO Y DASHBOARD
-# -----------------------------------------------------------------
+# --- CONTROLADORES DE RUTA (VISTAS) ---
 
 @app.route('/')
-def index():
-    if not session.get('role'): return render_template('login.html')
-    return redirect(url_for('dashboard'))
+def root():
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    return render_template('login.html')
 
 @app.route('/login', methods=['POST'])
-def login():
-    u, p = request.form.get('user'), request.form.get('pin')
+def auth():
+    user = request.form.get('user')
+    pin = request.form.get('pin')
+    
     with get_db() as conn:
         with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM usuarios WHERE username=%s AND pin=%s", (u, p))
-            user = cur.fetchone()
-            if user:
-                session['role'], session['username'] = user['role'], user['username']
-                registrar_log("Login Success", f"Usuario {u} entró")
+            cur.execute("SELECT * FROM usuarios WHERE username=%s AND pin=%s", (user, pin))
+            account = cur.fetchone()
+            
+            if account:
+                session.permanent = True
+                session['user_id'] = account['id']
+                session['username'] = account['username']
+                session['role'] = account['role']
+                registrar_auditoria(user, "LOGIN", "usuarios", account['id'], "Ingreso exitoso")
                 return redirect(url_for('dashboard'))
-    flash("Acceso denegado: PIN o Usuario incorrecto", "danger")
-    return redirect(url_for('index'))
+    
+    flash("Credenciales incorrectas. Verifique su PIN.", "danger")
+    return redirect(url_for('root'))
 
 @app.route('/dashboard')
 def dashboard():
-    if not session.get('role'): return redirect(url_for('index'))
+    if 'user_id' not in session: return redirect(url_for('root'))
+    
+    resumen = obtener_resumen_caja()
     with get_db() as conn:
         with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-            cur.execute("SELECT value FROM settings WHERE key='cap_inicial'")
-            c_i = float(cur.fetchone()['value'])
-            cur.execute("SELECT SUM(amount) as s FROM reinvestments")
-            r = cur.fetchone()['s'] or 0.0
-            cur.execute("SELECT SUM(capital) as s FROM loans")
-            p_p = cur.fetchone()['s'] or 0.0
-            cur.execute("SELECT SUM(total_due) as s FROM loans")
-            t_d = cur.fetchone()['s'] or 0.0
-            cur.execute("SELECT SUM(amount) as s FROM payments")
-            p_t = cur.fetchone()['s'] or 0.0
+            # Clientes con cuotas vencidas (Simulado por fecha)
+            cur.execute("""
+                SELECT l.id, c.nombre, l.monto_cuota, l.fecha_vencimiento 
+                FROM loans l JOIN clientes c ON l.cliente_id = c.id 
+                WHERE l.estado = 'ACTIVO' AND l.fecha_vencimiento < CURRENT_DATE
+                LIMIT 5
+            """)
+            vencidos = cur.fetchall()
             
-            stats = {
-                'disponible': (c_i + r - p_p + p_t),
-                'en_calle': (t_d - p_t),
-                'utilidad': (t_d - p_p)
-            }
-            cur.execute("""SELECT p.amount, p.date, c.nombre FROM payments p 
-                           JOIN loans l ON p.loan_id = l.id JOIN clientes c ON l.cliente_id = c.id 
-                           ORDER BY p.id DESC LIMIT 5""")
-            movs = cur.fetchall()
-    return render_template('dashboard.html', **stats, recientes=movs)
+            cur.execute("SELECT COUNT(*) as total FROM clientes")
+            total_clientes = cur.fetchone()['total']
+            
+    return render_template('dashboard.html', data=resumen, alertas=vencidos, n_cli=total_clientes)
 
-# -----------------------------------------------------------------
-# 5. GESTIÓN DE PRÉSTAMOS (CONTROL DE CAJA DISPONIBLE)
-# -----------------------------------------------------------------
-
-@app.route('/prestamos', methods=['GET', 'POST'])
-def prestamos():
-    if not session.get('role'): return redirect(url_for('index'))
+@app.route('/clientes', methods=['GET', 'POST'])
+def gestionar_clientes():
+    if 'user_id' not in session: return redirect(url_for('root'))
     
     if request.method == 'POST':
-        cap_solicitado = float(request.form['cap'])
-        caja_actual = calcular_disponible()
+        nombre = request.form.get('nombre').upper()
+        cedula = request.form.get('cedula')
+        tel = request.form.get('telefono')
+        dir = request.form.get('direccion')
         
-        if cap_solicitado > caja_actual:
-            flash(f"ERROR: No hay fondos suficientes. Disponible: ₲ {caja_actual:,.0f}", "danger")
-            registrar_log("Bloqueo Préstamo", f"Solicitó {cap_solicitado} pero solo hay {caja_actual}")
-        else:
+        try:
             with get_db() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("INSERT INTO loans (cliente_id, capital, total_due, cuotas, frecuencia, date) VALUES (%s,%s,%s,%s,%s,%s)",
-                                 (request.form['cliente_id'], cap_solicitado, request.form['tot'], request.form['cuo'], 
-                                  request.form['frecuencia'], datetime.now().strftime("%Y-%m-%d")))
+                    cur.execute("""
+                        INSERT INTO clientes (nombre, cedula, telefono, direccion) 
+                        VALUES (%s, %s, %s, %s) RETURNING id
+                    """, (nombre, cedula, tel, dir))
+                    nuevo_id = cur.fetchone()[0]
                 conn.commit()
-            flash("Préstamo otorgado con éxito", "success")
-            registrar_log("Nuevo Préstamo", f"Capital: {cap_solicitado}")
-
+                registrar_auditoria(session['username'], "CREATE", "clientes", nuevo_id)
+                flash(f"Cliente {nombre} registrado.", "success")
+        except psycopg2.IntegrityError:
+            flash("Error: Esa cédula ya existe en el sistema.", "warning")
+            
     with get_db() as conn:
         with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-            cur.execute("""SELECT l.*, c.nombre, 
-                           (l.total_due - (SELECT COALESCE(SUM(amount),0) FROM payments WHERE loan_id = l.id)) AS saldo 
-                           FROM loans l JOIN clientes c ON l.cliente_id = c.id ORDER BY l.id DESC""")
-            loans = cur.fetchall()
-            cur.execute("SELECT id, nombre FROM clientes ORDER BY nombre ASC")
-            clis = cur.fetchall()
-    return render_template('prestamos.html', loans=loans, clientes=clis)
+            cur.execute("SELECT * FROM clientes ORDER BY nombre ASC")
+            lista = cur.fetchall()
+            
+    return render_template('clientes.html', clientes=lista)
 
-# -----------------------------------------------------------------
-# 6. GESTIÓN DE COBROS Y ELIMINACIÓN (SOLUCIÓN 404)
-# -----------------------------------------------------------------
-
-@app.route('/cobrar', methods=['GET', 'POST'])
-def cobrar():
-    if not session.get('role'): return redirect(url_for('index'))
-    if request.method == 'POST':
-        with get_db() as conn:
-            with conn.cursor() as cur:
-                cur.execute("INSERT INTO payments (loan_id, amount, date) VALUES (%s,%s,%s)",
-                             (request.form['loan_id'], request.form['monto'], datetime.now().strftime("%Y-%m-%d %H:%M")))
-            conn.commit()
-        flash("Cobro registrado satisfactoriamente", "success")
-        return redirect(url_for('historial'))
-    
-    with get_db() as conn:
-        with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-            cur.execute("""SELECT l.id, c.nombre, 
-                           (l.total_due - (SELECT COALESCE(SUM(amount),0) FROM payments WHERE loan_id = l.id)) AS pendiente 
-                           FROM loans l JOIN clientes c ON l.cliente_id = c.id""")
-            activos = [r for r in cur.fetchall() if r['pendiente'] > 0]
-    return render_template('cobrar.html', prestamos=activos)
-
-@app.route('/eliminar_pago/<int:id>')
-def eliminar_pago(id):
-    """Ruta crítica para corregir errores de dedo en cobros"""
+@app.route('/nuevo-prestamo', methods=['POST'])
+def crear_prestamo():
     if session.get('role') != 'admin':
-        flash("Solo el administrador puede borrar cobros", "danger")
-        return redirect(url_for('historial'))
+        flash("No tiene permisos para otorgar créditos.", "danger")
+        return redirect(url_for('dashboard'))
+        
+    c_id = request.form.get('cliente_id')
+    cap = float(request.form.get('capital'))
+    interes_porcentaje = float(request.form.get('interes')) # Ej: 20
+    cuotas = int(request.form.get('cuotas'))
+    frecuencia = request.form.get('frecuencia') # Diario, Semanal, Mensual
+    
+    # Cálculo Financiero
+    total_interes = cap * (interes_porcentaje / 100)
+    total_deuda = cap + total_interes
+    monto_cuota = total_deuda / cuotas
+    
+    # Validar Caja
+    caja = obtener_resumen_caja()
+    if cap > caja['disponible']:
+        flash("OPERACIÓN CANCELADA: Fondos insuficientes en caja.", "danger")
+        return redirect(url_for('dashboard'))
+        
     with get_db() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM payments WHERE id = %s", (id,))
+            cur.execute("""
+                INSERT INTO loans (cliente_id, capital, interes_total, total_deuda, cuotas_total, frecuencia, monto_cuota, fecha_inicio, estado)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVO') RETURNING id
+            """, (c_id, cap, total_interes, total_deuda, cuotas, frecuencia, monto_cuota))
+            l_id = cur.fetchone()[0]
         conn.commit()
-    flash("Registro de cobro eliminado", "warning")
-    registrar_log("Eliminación Cobro", f"ID Pago: {id}")
-    return redirect(url_for('historial'))
+        registrar_auditoria(session['username'], "OTORGAR_PRESTAMO", "loans", l_id, f"Monto: {cap}")
+        
+    flash("Préstamo aprobado y desembolsado correctamente.", "success")
+    return redirect(url_for('prestamos_lista'))
 
-# -----------------------------------------------------------------
-# 7. CAPITAL, CONFIGURACIÓN Y CIERRE
-# -----------------------------------------------------------------
-
-@app.route('/capital', methods=['GET', 'POST'])
-def capital():
-    if not session.get('role'): return redirect(url_for('index'))
+@app.route('/registrar-pago', methods=['POST'])
+def registrar_pago():
+    l_id = request.form.get('loan_id')
+    monto = float(request.form.get('monto'))
+    nota = request.form.get('nota', '')
+    
     with get_db() as conn:
-        with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-            if request.method == 'POST':
-                cur.execute("INSERT INTO reinvestments (amount, date, nota) VALUES (%s,%s,%s)",
-                             (request.form['monto_reinv'], datetime.now().strftime("%Y-%m-%d"), request.form['nota']))
-                conn.commit()
+        with conn.cursor() as cur:
+            # Insertar Pago
+            cur.execute("""
+                INSERT INTO payments (loan_id, monto, recibido_por, nota) 
+                VALUES (%s, %s, %s, %s)
+            """, (l_id, monto, session['username'], nota))
             
-            cur.execute("SELECT value FROM settings WHERE key='cap_inicial'")
-            cap_ini = float(cur.fetchone()['value'])
-            cur.execute("SELECT SUM(amount) as s FROM reinvestments")
-            total_r = cur.fetchone()['s'] or 0.0
-            cur.execute("SELECT * FROM reinvestments ORDER BY id DESC")
-            lista = cur.fetchall()
-    return render_template('reinversion.html', cap_ini=cap_ini, total_reinv=total_r, reinversiones=lista)
+            # Actualizar Estado del Préstamo
+            cur.execute("SELECT total_deuda FROM loans WHERE id=%s", (l_id,))
+            total_due = cur.fetchone()[0]
+            
+            cur.execute("SELECT SUM(monto) FROM payments WHERE loan_id=%s", (l_id,))
+            total_pagado = cur.fetchone()[0]
+            
+            if total_pagado >= total_due:
+                cur.execute("UPDATE loans SET estado='FINALIZADO' WHERE id=%s", (l_id,))
+                
+        conn.commit()
+        flash(f"Cobro de {monto} registrado exitosamente.", "success")
+        
+    return redirect(url_for('dashboard'))
+
+@app.route('/configuracion', methods=['GET', 'POST'])
+def config():
+    if session.get('role') != 'admin': return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        nuevo_cap = request.form.get('cap_inicial')
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE settings SET value=%s WHERE key='cap_inicial'", (nuevo_cap,))
+            conn.commit()
+        flash("Configuración de capital base actualizada.", "info")
+        
+    return render_template('config.html')
 
 @app.route('/logout')
 def logout():
+    registrar_auditoria(session.get('username'), "LOGOUT", "usuarios", 0)
     session.clear()
-    return redirect(url_for('index'))
+    return redirect(url_for('root'))
 
+# --- CIERRE Y ARRANQUE ---
 if __name__ == '__main__':
     init_db()
-    # Configuración dinámica para la nube (Render)
+    # Soporte para puerto dinámico de Render
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False)
